@@ -1,0 +1,58 @@
+name: dockflow-company-api
+
+services:
+  worker:
+    build: .
+    command: ["node", "server/worker.js"]
+    restart: unless-stopped
+    init: true
+    read_only: true
+    environment:
+      COMPANY_API_KEY: ${COMPANY_API_KEY:?Set COMPANY_API_KEY in .env}
+      UBUNTU_BRIDGE_URL: ${UBUNTU_BRIDGE_URL:?Set existing Ubuntu HTTPS bridge URL in .env}
+    depends_on:
+      - dockflow-db
+      - power-tool-db
+
+  dockflow-db:
+    build: .
+    command: ["node", "server/dockflow-api.js"]
+    restart: unless-stopped
+    init: true
+    read_only: true
+    environment:
+      PORT: 8081
+      SAP_STORAGE: postgres
+      SAP_AUTO_MIGRATE: "false"
+      AGILE_WIFI_ENDPOINT_MODE: fixed
+      POSTGRES_HOST: ${COMPANY_DB_HOST:?Set COMPANY_DB_HOST in .env}
+      POSTGRES_PORT: ${COMPANY_DB_PORT:-5432}
+      POSTGRES_DB: DockFlow
+      POSTGRES_USER: ${DOCKFLOW_COMPANY_DB_USER:?Set DOCKFLOW_COMPANY_DB_USER in .env}
+      POSTGRES_PASSWORD: ${DOCKFLOW_COMPANY_DB_PASSWORD:?Set DOCKFLOW_COMPANY_DB_PASSWORD in .env}
+      POSTGRES_SCHEMA: Analysis
+      POSTGRES_SAP_DRESSINGS_TABLE: SAPAnalysisDressings
+      POSTGRES_SAP_SAVOURY_TABLE: SAPAnalysisSavoury
+      POSTGRES_SSL: ${COMPANY_DB_SSL:-false}
+      TZ: Asia/Manila
+
+  power-tool-db:
+    build: .
+    command: ["node", "server/power-tool-api.js"]
+    restart: unless-stopped
+    init: true
+    read_only: true
+    environment:
+      PORT: 8082
+      POSTGRES_ENABLED: "true"
+      POSTGRES_ONLY: "true"
+      POWER_TOOL_AUTO_MIGRATE: "false"
+      AGILE_WIFI_ENDPOINT_MODE: fixed
+      POSTGRES_HOST: ${COMPANY_DB_HOST:?Set COMPANY_DB_HOST in .env}
+      POSTGRES_PORT: ${COMPANY_DB_PORT:-5432}
+      POSTGRES_DB: confirmation_powertool_machine
+      POSTGRES_USER: ${POWER_TOOL_COMPANY_DB_USER:?Set POWER_TOOL_COMPANY_DB_USER in .env}
+      POSTGRES_PASSWORD: ${POWER_TOOL_COMPANY_DB_PASSWORD:?Set POWER_TOOL_COMPANY_DB_PASSWORD in .env}
+      POSTGRES_SCHEMA: power_tool
+      POSTGRES_SSL: ${COMPANY_DB_SSL:-false}
+      TZ: Asia/Manila
