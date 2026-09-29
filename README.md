@@ -34,16 +34,10 @@ notepad .env
 
 3. Fill COMPANY_DB_HOST with the PostgreSQL host **reachable from the workstation**, COMPANY_DB_PORT (normally 5432), and credentials for each database. The two databases can share the same host and port while using separate names, users, or passwords. Database names and schemas are set in compose.yaml; confirm them with the DBA. Set COMPANY_DB_SSL as required by the DBA. The worker never sends these credentials to Ubuntu.
 
-4. Generate one random key in PowerShell, paste it as COMPANY_API_KEY in the workstation .env, and share that exact key with the Ubuntu administrator over an approved private channel:
-
-~~~powershell
-[Convert]::ToHexString([Security.Cryptography.RandomNumberGenerator]::GetBytes(32)).ToLowerInvariant()
-~~~
-
-5. Leave UBUNTU_BRIDGE_URL set to the **already existing** HTTPS URL in .env:
+4. Leave UBUNTU_BRIDGE_URL set to the **already existing** HTTPS URL in .env:
 https://dockflow.myvnc.com/dockflow/api/integrations/company-bridge
 
-6. Check connectivity from the workstation, then start the three private Docker services:
+5. Check connectivity from the workstation, then start the three private Docker services:
 
 ~~~powershell
 Test-NetConnection dockflow.myvnc.com -Port 443
