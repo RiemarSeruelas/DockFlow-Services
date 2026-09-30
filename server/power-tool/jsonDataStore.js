@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util";
 // Legacy JSON store retained for one-time PostgreSQL import and local fallback.
 import fs from "fs/promises";
 import path from "path";
@@ -358,7 +359,7 @@ function migrateDb(db) {
   next.legacyCategories = Array.isArray(next.legacyCategories) ? next.legacyCategories : [];
 
   const staffAccounts = normalizedStaffAccounts(next, version);
-  if (JSON.stringify(next.staffAccounts) !== JSON.stringify(staffAccounts)) {
+  if (!isDeepStrictEqual(next.staffAccounts, staffAccounts)) {
     next.staffAccounts = staffAccounts;
     changed = true;
   }
@@ -421,16 +422,16 @@ function migrateDb(db) {
       : (Array.isArray(current.fields) ? current.fields : []))
       .map(normalizeQuestion)
       .filter(Boolean);
-    if (!Array.isArray(current.detailFields) || JSON.stringify(normalizedDetails) !== JSON.stringify(current.detailFields)) {
+    if (!Array.isArray(current.detailFields) || !isDeepStrictEqual(normalizedDetails, current.detailFields)) {
       current.detailFields = normalizedDetails;
       changed = true;
     }
-    if (!Array.isArray(current.reviewQuestions) || JSON.stringify(normalizedQuestions) !== JSON.stringify(current.reviewQuestions)) {
+    if (!Array.isArray(current.reviewQuestions) || !isDeepStrictEqual(normalizedQuestions, current.reviewQuestions)) {
       current.reviewQuestions = normalizedQuestions;
       changed = true;
     }
     const normalizedSpecificGroups = normalizeSpecificReviewGroups(current.id, current.specificReviewGroups);
-    if (!Array.isArray(current.specificReviewGroups) || JSON.stringify(normalizedSpecificGroups) !== JSON.stringify(current.specificReviewGroups)) {
+    if (!Array.isArray(current.specificReviewGroups) || !isDeepStrictEqual(normalizedSpecificGroups, current.specificReviewGroups)) {
       current.specificReviewGroups = normalizedSpecificGroups;
       changed = true;
     }
@@ -450,7 +451,7 @@ function migrateDb(db) {
         ? record.toolImages
         : (record.toolImage ? [record.toolImage] : [])
     ).filter((image) => typeof image === "string" && image.trim());
-    if (JSON.stringify(record.toolImages || []) !== JSON.stringify(normalizedImages)) {
+    if (!isDeepStrictEqual(record.toolImages || [], normalizedImages)) {
       record.toolImages = normalizedImages;
       changed = true;
     }

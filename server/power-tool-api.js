@@ -15,9 +15,9 @@ listen(process.env.PORT || 8082, async (request, response) => {
   if (path === '/api/power-tool/health' && request.method === 'GET') {
     try {
       const database = await ready();
-      return send(response, 200, { ok: true, provider: database.provider });
+      return send(response, 200, { ok: true, serviceVersion: '11.1.0', provider: database.provider, loggingAvailable: database.loggingAvailable });
     } catch (error) {
-      return send(response, 503, { ok: false, error: String(error.message).slice(0, 200) });
+      return send(response, 503, { ok: false, serviceVersion: '11.1.0', error: String(error.message).slice(0, 200) });
     }
   }
   if (request.method !== 'POST') return send(response, 404, { error: 'Not found' });

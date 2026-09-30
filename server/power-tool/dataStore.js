@@ -23,6 +23,7 @@ const POWER_TOOL_LOGS_TABLE = "power_tool_logs";
 const BASELINE = Symbol("powerToolPostgresBaseline");
 
 let pool;
+let postgresLogsAvailable = true;
 let ensurePromise;
 let reconnectPromise;
 let activeProvider = POSTGRES_ONLY ? "unavailable" : "json";
@@ -433,11 +434,13 @@ async function ensurePostgres() {
       const client = await getPool().connect();
       try {
         if (process.env.POWER_TOOL_AUTO_MIGRATE === "false") {
-          const required = ["power_tool_meta", "power_tool_usage", "power_tool_categories", "power_tool_legacy_categories", "power_tool_staff_accounts", "power_tool_requests", "power_tool_items", "power_tool_logs"];
+          const required = ["power_tool_meta", "power_tool_usage", "power_tool_categories", "power_tool_legacy_categories", "power_tool_staff_accounts", "power_tool_requests", "power_tool_items"];
           for (const table of required) {
             const found = await client.query('SELECT 1 FROM information_schema.tables WHERE table_schema=$1 AND table_name=$2', [schemaName(), table]);
             if (!found.rowCount) throw new Error(`Missing ${schemaName()}.${table}; migrate and back up the existing Power Tool data before enabling the API.`);
           }
+          const logs = await client.query('SELECT 1 FROM information_schema.tables WHERE table_schema=$1 AND table_name=$2', [schemaName(), POWER_TOOL_LOGS_TABLE]);
+          postgresLogsAvailable = logs.rowCount > 0;
           const existing = await client.query(`SELECT 1 FROM ${tableName("power_tool_meta")} WHERE singleton = true`);
           if (!existing.rowCount) throw new Error('Power Tool database has no records; migrate the existing data before enabling the API.');
           return;
@@ -877,6 +880,7 @@ export async function recordPowerToolLog(entry = {}) {
     }
     return { stored: false, inserted: false, provider: "json" };
   }
+  if (!postgresLogsAvailable) return { stored: false, provider: "postgresql", reason: "Optional power_tool_logs table is absent" };
   try {
     return await recordPostgresLog(entry);
   } catch (error) {
@@ -897,7 +901,7 @@ export async function checkDb() {
   try {
     await ensurePostgres();
     await getPool().query("SELECT 1");
-    return { ok: true, provider: "postgresql", schema: schemaName() };
+    return { ok: true, provider: "postgresql", schema: schemaName(), loggingAvailable: postgresLogsAvailable };
   } catch (error) {
     if (!postgresConnectionError(error)) throw error;
     await activateJsonFallback(error);
