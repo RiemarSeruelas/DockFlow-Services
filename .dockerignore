@@ -1,4 +1,7 @@
-.env
 node_modules
-secrets
+.env
+.env.*
+!.env.example
 *.log
+workstation-api-logs.txt
+.git

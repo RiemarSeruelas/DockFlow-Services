@@ -1,3 +1,4 @@
+import { databaseContext, log, safeError } from '../logger.js';
 import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { dirname } from "node:path";
@@ -63,10 +64,10 @@ async function loadRuntimePostgresConfiguration() {
   try {
     const saved = JSON.parse(await readFile(file, "utf8"));
     runtimePostgresHost = validateRuntimePostgresHost(saved?.databaseHost);
-    console.log("[Database] Loaded the persisted company database endpoint.");
+    log.info('power-tool.saved_endpoint.loaded');
   } catch (error) {
     if (error?.code !== "ENOENT") {
-      console.warn(`[Database] Ignoring invalid runtime database endpoint: ${error.message}`);
+      log.warn('power-tool.saved_endpoint.invalid', { failure: safeError(error) });
     }
   }
 }
@@ -144,7 +145,7 @@ function getPool() {
       application_name: "power-tool-system"
     });
     pool.on("error", (error) => {
-      console.error(`[PostgreSQL] Idle client error: ${error.message}`);
+      log.error('power-tool.pool.failed', { ...databaseContext(), failure: safeError(error) });
     });
   }
   return pool;
@@ -425,7 +426,7 @@ async function seedPostgres(client) {
     await insertCollection(client, table, source[key]);
   }
   const action = POSTGRES_ONLY ? "Initialized PostgreSQL" : "Imported JSON database";
-  console.log(`[PostgreSQL] ${action}: categories=${source.categories?.length || 0} requests=${source.requests?.length || 0} items=${source.items?.length || 0} accounts=${source.staffAccounts?.length || 0}`);
+  log.info('power-tool.database.initialized', { action, categoryCount: source.categories?.length || 0, requestCount: source.requests?.length || 0, itemCount: source.items?.length || 0, accountCount: source.staffAccounts?.length || 0 });
 }
 
 async function ensurePostgres() {
@@ -696,7 +697,7 @@ async function mirrorPostgresDb(db) {
   try {
     await jsonStore.writeDb(db);
   } catch (error) {
-    console.warn(`[Database] Could not refresh the local fallback copy: ${error.message}`);
+    log.warn('power-tool.fallback.failed', { failure: safeError(error) });
   }
 }
 
@@ -789,7 +790,7 @@ export async function switchRuntimePostgresHost(value) {
   lastPostgresConnectedAt = "";
   lastPostgresError = "";
   await persistRuntimePostgresHost(nextHost);
-  console.log("[Database] Company database endpoint changed; reconnecting with the new private address.");
+  log.info('power-tool.endpoint.changed');
   return { changed: true, databaseHost: nextHost };
 }
 
@@ -811,7 +812,7 @@ export async function reconnectPostgres() {
       fallbackDirty = false;
       lastPostgresConnectedAt = new Date().toISOString();
       lastPostgresError = "";
-      console.log(`[Database] PostgreSQL connected (schema ${schemaName()}).`);
+      log.info('power-tool.database.connected', { ...databaseContext(), schema: schemaName() });
       return getDataStoreState();
     } catch (error) {
       lastPostgresError = String(error.message || error);

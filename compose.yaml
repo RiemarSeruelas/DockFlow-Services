@@ -1,13 +1,23 @@
 name: dockflow-company-api
 
+x-console-logging: &console-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   worker:
+    logging: *console-logging
     build: .
     command: ["node", "server/worker.js"]
     restart: unless-stopped
     init: true
     read_only: true
     environment:
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      LOG_SERVICE_NAME: worker
+      WORKSTATION_ID: ${WORKSTATION_ID:-not-configured}
       COMPANY_API_KEY: ${COMPANY_API_KEY:?Set COMPANY_API_KEY in .env}
       UBUNTU_BRIDGE_URL: ${UBUNTU_BRIDGE_URL:?Set existing Ubuntu HTTPS bridge URL in .env}
     depends_on:
@@ -15,12 +25,16 @@ services:
       - power-tool-db
 
   dockflow-db:
+    logging: *console-logging
     build: .
     command: ["node", "server/dockflow-api.js"]
     restart: unless-stopped
     init: true
     read_only: true
     environment:
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      LOG_SERVICE_NAME: dockflow-db
+      WORKSTATION_ID: ${WORKSTATION_ID:-not-configured}
       PORT: 8081
       SAP_STORAGE: postgres
       SAP_AUTO_MIGRATE: "false"
@@ -37,12 +51,16 @@ services:
       TZ: Asia/Manila
 
   power-tool-db:
+    logging: *console-logging
     build: .
     command: ["node", "server/power-tool-api.js"]
     restart: unless-stopped
     init: true
     read_only: true
     environment:
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      LOG_SERVICE_NAME: power-tool-db
+      WORKSTATION_ID: ${WORKSTATION_ID:-not-configured}
       PORT: 8082
       POSTGRES_ENABLED: "true"
       POSTGRES_ONLY: "true"

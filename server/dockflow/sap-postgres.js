@@ -1,3 +1,4 @@
+import { databaseContext, log, safeError, SERVICE_VERSION } from '../logger.js';
 import pg from 'pg';
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -131,7 +132,7 @@ if (runtimeHostFile && process.env.AGILE_WIFI_ENDPOINT_MODE !== 'fixed') {
   try {
     runtimeHost = validateSapDatabaseHost(JSON.parse(readFileSync(runtimeHostFile, 'utf8')).databaseHost);
   } catch (error) {
-    if (error?.code !== 'ENOENT') console.warn('[SAP] Ignoring invalid saved database endpoint.');
+    if (error?.code !== 'ENOENT') log.warn('sap.saved_endpoint.invalid', { failure: safeError(error) });
   }
 }
 export const getRuntimeSapHost = () => runtimeHost;
@@ -175,7 +176,7 @@ export async function switchRuntimeSapHost(value) {
   }
   runtimeHost = nextHost;
   for (const switchRepository of repositories) switchRepository(nextHost);
-  console.log('[SAP] Company PostgreSQL endpoint changed; rebuilding Receiving Records pools.');
+  log.info('sap.endpoint.changed');
   return { changed: true };
 }
 
@@ -211,14 +212,14 @@ function createSourceRepository(area) {
     ssl: process.env.POSTGRES_SSL === 'true' ? { rejectUnauthorized: true } : false,
   }) : null;
   let pool = makePool(runtimeHost);
-  pool?.on('error', () => {});
+  pool?.on('error', error => log.error('sap.pool.failed', { area, schema, table: tableName, failure: safeError(error) }));
   let ready;
   const types = new Map();
   const synced = new Map();
   repositories.add(host => {
     const previous = pool;
     pool = makePool(host);
-    pool?.on('error', () => {});
+    pool?.on('error', error => log.error('sap.pool.failed', { area, schema, table: tableName, failure: safeError(error) }));
     ready = undefined;
     types.clear();
     synced.clear();
@@ -236,14 +237,23 @@ function createSourceRepository(area) {
       if (!types.size) throw Object.assign(new Error(`Receiving Records table ${schema}.${tableName} was not found or is not accessible.`), { status: 503, code: 'SAP_TABLE_MISSING' });
       const missing = ['id', 'record_key'].filter(column => !types.has(column));
       if (missing.length) throw Object.assign(new Error(`Receiving Records table ${schema}.${tableName} needs stable row identifiers: ${missing.join(', ')}.`), { status: 503, code: 'SAP_ROW_ID_MISSING' });
-    })().catch(error => { ready = undefined; throw error; });
+      log.info('sap.schema_inspected', { ...databaseContext(), area, schema, table: tableName,
+        columnCount: types.size, existingColumns: [...types.keys()],
+        mappedColumns: sourceColumns.filter(([, , , db]) => types.has(db)).map(([, , , db]) => db),
+        missingOptionalColumns: sourceColumns.filter(([, , , db]) => !types.has(db)).map(([, , , db]) => db),
+        stableIdentifiersPresent: true });
+    })().catch(error => {
+      log.error('sap.schema_inspection.failed', { ...databaseContext(), area, schema, table: tableName, failure: safeError(error) });
+      ready = undefined;
+      throw error;
+    });
     await ready;
   };
   const columns = () => sourceColumns.filter(([, , , db]) => types.has(db));
   const canFormat = () => area === 'DRESSINGS' && ['cell_formats', 'row_height', 'row_hidden'].every(db => types.has(db));
   const metadata = () => ({
     columns: columns(), canFormat: canFormat(),
-    source: { area, schema, table: tableName, serviceVersion: '11.1.0', missingOptionalColumns: sourceColumns.filter(([, , , db]) => !types.has(db)).map(([, , , db]) => db) },
+    source: { area, schema, table: tableName, serviceVersion: SERVICE_VERSION, missingOptionalColumns: sourceColumns.filter(([, , , db]) => !types.has(db)).map(([, , , db]) => db) },
   });
   const revisionSql = () => types.has('revision') ? identifier('revision') : 'xmin::text::bigint';
   const select = () => {

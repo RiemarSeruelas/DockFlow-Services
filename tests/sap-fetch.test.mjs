@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
 import pg from 'pg';
+import { SERVICE_VERSION } from '../server/logger.js';
 import { PGlite } from '@electric-sql/pglite';
 import { createSapRepository, sapColumns, savouryColumns, switchRuntimeSapHost } from '../server/dockflow/sap-postgres.js';
 
@@ -51,7 +52,7 @@ test('Dressings reads the supplied table without requesting the absent extension
   const page = await repository.page(0, 25);
   assert.equal(page.rows[0].values.description, 'CITRIC ACID');
   assert.equal(page.rows[0].shipmentId, '9007199254740993');
-  assert.equal(page.source.serviceVersion, '11.1.0');
+  assert.equal(page.source.serviceVersion, SERVICE_VERSION);
   assert.equal(page.canFormat, true);
   assert.deepEqual(page.source.missingOptionalColumns, []);
   assert.equal(queries.some(sql => /\b(issued|rt_reasoning|week_number|pallet_type|foil_weight|pallet_weight_kg|in_full_percent|otif_percent)\b/.test(sql)), false);
