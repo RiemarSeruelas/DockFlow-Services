@@ -374,9 +374,27 @@ function createSourceRepository(area) {
       const literal = value => value.replace(/[\\%_]/g, character => '\\' + character);
       const virtual=config.receivingValues||{};
       if(!virtual||typeof virtual!=='object'||Array.isArray(virtual)||Object.entries(virtual).some(([key,values])=>key.length>200||!values||typeof values!=='object'||Array.isArray(values)||Object.entries(values).some(([key,value])=>!supplementalKeys.has(key)||typeof value!=='string'||value.length>2000)))fail('Invalid supplementary receiving values',400);
-      const virtualRef=Object.keys(virtual).length?parameter(JSON.stringify(virtual)):'';
-
       const term = String(search || '').trim().slice(0, 200);
+
+const supplementalColumns = approvedColumns.filter(
+  ([key, , , db]) => !types.has(db) && supplementalKeys.has(key)
+);
+
+const usesVirtual =
+  Object.keys(virtual).length > 0 &&
+  (
+    (Boolean(term) && supplementalColumns.length > 0) ||
+    (field && supplementalColumns.some(([key]) => key === field[0])) ||
+    Object.entries(config.filters || {}).some(
+      ([key, value]) =>
+        Boolean(value) &&
+        supplementalColumns.some(([name]) => name === key)
+    )
+  );
+
+const virtualRef = usesVirtual
+  ? parameter(JSON.stringify(virtual))
+  : '';
       const searchable = [...new Set(['record_key', 'supplier', ...columns().map(([, , , db]) => db)])].filter(db => types.has(db));
       if (term) conditions.push(`concat_ws(' ', ${[...searchable.map(identifier),...approvedColumns.filter(([, , , db])=>!types.has(db)).map(field=>effectiveValue(field,virtualRef))].join(', ')}) ILIKE ${parameter(`%${literal(term)}%`)}`);
       for (const [key, value] of Object.entries(config.filters || {})) {
