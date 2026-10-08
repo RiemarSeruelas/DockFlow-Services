@@ -51,6 +51,12 @@ export const sapColumns = [
 ];
 
 export const savouryColumns = [
+  // Separate receiving fields use existing DockFlow metadata when absent from the company table.
+  ['poNumber','PO NUMBER',19,'po_number','sap'], ['batch','SAP BATCH',20,'batch','sap'],
+  ['supplierLot',"SUPPLIER'S LOT",22,'supplier_lot','sap'], ['mfgDate','MANUFACTURING DATE',20,'mfg_date','sap'],
+  ['breakdown','BREAKDOWN',24,'breakdown','sap'],
+  ['palletType','TYPE / ALLERGEN',24,'pallet_type','sap'],
+  ['foilWeight','FOIL WEIGHT',18,'foil_weight','sap'], ['palletWeightKg','PALLET WEIGHT (KG)',22,'pallet_weight_kg','sap'],
   ['sourceBatch', 'SOURCE BATCH', 24, 'source_batch', 'system'], ['sourceSheet', 'SOURCE SHEET', 24, 'source_sheet', 'system'],
   ['sourceRow', 'SOURCE ROW', 12, 'source_row', 'system'], ['sectionIndex', 'SECTION', 12, 'section_index', 'system'],
   ['materialType', 'MATERIAL TYPE', 17, 'material_type', 'sap'], ['std', 'STD', 16, 'std', 'sap'],
@@ -71,6 +77,7 @@ export const savouryColumns = [
   ['balance', 'BALANCE', 16, 'balance', 'warehouse'], ['status', 'STATUS', 18, 'status', 'warehouse'],
   ['remarks', 'REMARKS', 32, 'remarks', 'sap'],
 ];
+export const supplementalSapKeys = ['poNumber','batch','supplierLot','mfgDate','breakdown','palletType','foilWeight','palletWeightKg'];
 export const sapColumnsFor = area => area === 'SAVOURY' ? savouryColumns : sapColumns;
 const sapFields = ['destination', 'encodedBy', 'item', 'description', 'drNumber', 'gatepassNumber', 'quantity', 'poNumber', 'batch', 'breakdown', 'mfgDate', 'expDate', 'matdoc', 'supplierLot', 'remarks'];
 const warehouseFields = ['inventoryController', 'receivingController', 'helperCount', 'truckType', 'actualReceived', 'palletCount', 'warehouseRemarks', 'qaStart', 'qaEnd', 'qaDisposition'];
@@ -254,9 +261,9 @@ function createSourceRepository(area) {
   const canFormat = () => area === 'DRESSINGS' && ['cell_formats', 'row_height', 'row_hidden'].every(db => types.has(db));
   const metadata = () => ({
     columns: columns(), canFormat: canFormat(),
-    source: { worksheetVersion: '13.1', area, schema, table: tableName, serviceVersion: SERVICE_VERSION, missingOptionalColumns: sourceColumns.filter(([, , , db]) => !types.has(db)).map(([, , , db]) => db) },
+    source: { worksheetVersion: '13.2', area, schema, table: tableName, serviceVersion: SERVICE_VERSION, missingOptionalColumns: sourceColumns.filter(([, , , db]) => !types.has(db)).map(([, , , db]) => db) },
   });
-  const revisionSql = () => types.has('revision') ? identifier('revision') : 'xmin::text::bigint';
+  const revisionSql = () => types.has('revision') ? identifier('revision') : `${identifier(tableName)}.xmin::text::bigint`;
   const select = () => {
     const dbColumns = [...new Set(['id', 'record_key', 'shipment_id', 'supplier', 'revision', 'verified', 'updated_at', 'cell_formats', 'row_height', 'row_hidden', ...columns().map(([, , , db]) => db)])].filter(db => types.has(db));
     return `SELECT ${dbColumns.map(identifier).join(', ')}, ${revisionSql()} AS dockflow_revision FROM ${table}`;
@@ -275,12 +282,14 @@ function createSourceRepository(area) {
   };
   const rowsFor = async (where, args) => (await pool.query(`${select()} ${where}`, args)).rows.map(decode);
 
+  const supplementalKeys=new Set(supplementalSapKeys);
+  const effectiveValue=(field,ref)=>types.has(field[3])?`${identifier(field[3])}::text`:ref&&supplementalKeys.has(field[0])?`COALESCE(${ref}::jsonb->record_key->>'${field[0]}','')`:`''`;
   // Only approved worksheet fields enter SQL. Values remain bound parameters.
-  const numberFields = new Set(['quantity','actualReceived','scheduledQty','actualQty','totalWeight','helperCount','palletCount','sourceRow','sectionIndex','balance','std','rol']);
+  const numberFields = new Set(['quantity','actualReceived','scheduledQty','actualQty','totalWeight','helperCount','palletCount','sourceRow','sectionIndex','balance','std','rol','foilWeight','palletWeightKg']);
   const dateFields = new Set(['deliveryDate','mfgDate','expDate','date','scheduledDate','expirationDate','gateIn','gateOut','startUnloading','endUnloading','qaStart','qaEnd','time','timeReceived','timeStartUnloading','finishedUnloading']);
   const numberSql = value => `CASE WHEN ${value} ~ '^[+-]?(?:[0-9]+(?:\\.[0-9]+)?|[0-9]{1,3}(?:,[0-9]{3})+(?:\\.[0-9]+)?)$' THEN REPLACE(${value}, ',', '')::numeric END`;
-  const sortSql = (field, direction) => {
-    const value = `NULLIF(BTRIM(${identifier(field[3])}::text), '')`;
+  const sortSql = (field, direction, virtualRef = '') => {
+    const value = `NULLIF(BTRIM(${effectiveValue(field,virtualRef)}), '')`;
     const tie = `id ${direction}`;
     if (numberFields.has(field[0])) return {join:'', order:`${numberSql(value)} ${direction} NULLS LAST, ${tie}`};
     if (dateFields.has(field[0])) {
@@ -354,7 +363,8 @@ function createSourceRepository(area) {
       limit = Math.max(1, Math.min(100, Math.floor(Number(limit) || 25)));
       const config = typeof options === 'object' && options && !Array.isArray(options) ? options : { direction: options };
       if (!['asc','desc'].includes(config.direction || 'desc')) fail('Invalid sort direction', 400);
-      const field = config.column ? columns().find(([key]) => key === config.column) : null;
+      const approvedColumns=[...columns(),...sourceColumns.filter(([key,,,db])=>area==='SAVOURY'&&supplementalKeys.has(key)&&!types.has(db))];
+      const field = config.column ? approvedColumns.find(([key]) => key === config.column) : null;
       if (config.column && !field) fail('Invalid sort column', 400);
       if (config.filters && (typeof config.filters !== 'object' || Array.isArray(config.filters))) fail('Invalid column filters', 400);
       if (config.exclude && (!Array.isArray(config.exclude) || config.exclude.length > 100000 || config.exclude.some(key => typeof key !== 'string' || key.length > 200))) fail('Invalid excluded rows', 400);
@@ -362,18 +372,22 @@ function createSourceRepository(area) {
       const args = [limit + 1, offset], conditions = [];
       const parameter = value => { args.push(value); return `$${args.length}`; };
       const literal = value => value.replace(/[\\%_]/g, character => '\\' + character);
+      const virtual=config.receivingValues||{};
+      if(!virtual||typeof virtual!=='object'||Array.isArray(virtual)||Object.entries(virtual).some(([key,values])=>key.length>200||!values||typeof values!=='object'||Array.isArray(values)||Object.entries(values).some(([key,value])=>!supplementalKeys.has(key)||typeof value!=='string'||value.length>2000)))fail('Invalid supplementary receiving values',400);
+      const virtualRef=Object.keys(virtual).length?parameter(JSON.stringify(virtual)):'';
+
       const term = String(search || '').trim().slice(0, 200);
       const searchable = [...new Set(['record_key', 'supplier', ...columns().map(([, , , db]) => db)])].filter(db => types.has(db));
-      if (term) conditions.push(`concat_ws(' ', ${searchable.map(identifier).join(', ')}) ILIKE ${parameter(`%${literal(term)}%`)}`);
+      if (term) conditions.push(`concat_ws(' ', ${[...searchable.map(identifier),...approvedColumns.filter(([, , , db])=>!types.has(db)).map(field=>effectiveValue(field,virtualRef))].join(', ')}) ILIKE ${parameter(`%${literal(term)}%`)}`);
       for (const [key, value] of Object.entries(config.filters || {})) {
-        const column = columns().find(([name]) => name === key);
+        const column = approvedColumns.find(([name]) => name === key);
         if (!column || typeof value !== 'string' || value.length > 200) fail('Invalid column filter', 400);
-        if (value) conditions.push(`COALESCE(${identifier(column[3])}::text, '') ILIKE ${parameter(`%${literal(value)}%`)}`);
+        if (value) conditions.push(`COALESCE(${effectiveValue(column,virtualRef)}, '') ILIKE ${parameter(`%${literal(value)}%`)}`);
       }
       if (config.exclude?.length) conditions.push(`NOT (record_key=ANY(${parameter(config.exclude)}::text[]))`);
       const direction = config.direction === 'asc' ? 'ASC' : 'DESC';
       const ordering = field ? null : config.order && Object.keys(config.order).length ? `COALESCE((${parameter(JSON.stringify(config.order))}::jsonb->>record_key)::numeric, id)` : 'id';
-      const sorted = field ? sortSql(field, direction) : {join:'', order:`${ordering} ${direction}, id ${direction}`};
+      const sorted = field ? sortSql(field, direction,virtualRef) : {join:'', order:`${ordering} ${direction}, id ${direction}`};
       const rows = await rowsFor(`${sorted.join} ${conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''} ORDER BY ${sorted.order} LIMIT $1 OFFSET $2`, args);
       return { rows: rows.slice(0, limit), hasMore: rows.length > limit, ...metadata(), sort: {column: config.column || '', direction: direction.toLowerCase()} };
     },
@@ -384,16 +398,25 @@ function createSourceRepository(area) {
       await initialize();
       const conditions = [], args = [];
       if (types.has('shipment_id')) { args.push(shipment.id); conditions.push(`shipment_id=$${args.length}`); }
-      for (const [db, values] of [
-        [area === 'SAVOURY' ? 'item_code' : 'item', (shipment.items || []).map(item => item.materialCode)],
-        ['dr_number', [shipment.drNumber, ...(shipment.items || []).map(item => item.dnNumber)]],
-        ['po_number', [shipment.poNumber, ...(shipment.items || []).map(item => item.poNumber)]],
-      ]) {
-        const matches = [...new Set(values.flatMap(value => String(value || '').split(',')).map(value => value.trim()).filter(Boolean))];
-        if (types.has(db) && matches.length) { args.push(matches); conditions.push(`${identifier(db)}::text=ANY($${args.length}::text[])`); }
+      const materialColumn=area==='SAVOURY'?'item_code':'item';
+      // Match real source lines by material and their own invoice pair, never a
+      // broad OR over all material/DR/PO values that may exhaust a row cap.
+      for(const item of shipment.items||[]){
+        if(!types.has(materialColumn))continue;
+        const lines=item.deliveryLines?.length?item.deliveryLines:[{drNumber:item.dnNumber||shipment.drNumber,poNumber:item.poNumber||shipment.poNumber}];
+        for(const line of lines){
+          const drs=String(line.drNumber||'').split(/[,\/;\n]+/).map(value=>value.trim()).filter(Boolean);
+          if(!types.has('dr_number')||!drs.length)continue;
+          args.push(String(item.materialCode));const materialArg=args.length;
+          args.push(drs);const drArg=args.length;
+          let condition=`(${identifier(materialColumn)}::text=$${materialArg} AND dr_number::text=ANY($${drArg}::text[])`;
+          const pos=String(line.poNumber||'').split(/[,\/;\n]+/).map(value=>value.trim()).filter(Boolean);
+          if(types.has('po_number')&&pos.length){args.push(pos);condition+=` AND (po_number IS NULL OR po_number::text='' OR po_number::text=ANY($${args.length}::text[]))`;}
+          conditions.push(condition+')');
+        }
       }
       if (!conditions.length) return [];
-      return rowsFor(`WHERE ${conditions.join(' OR ')} ORDER BY ${types.has('shipment_id') ? 'CASE WHEN shipment_id=$1 THEN 0 ELSE 1 END, ' : ''}id DESC LIMIT 10000`, args);
+      return rowsFor(`WHERE ${conditions.join(' OR ')} ORDER BY ${types.has('shipment_id') ? 'CASE WHEN shipment_id=$1 THEN 0 ELSE 1 END, ' : ''}id DESC`, args);
     },
     async add(values, name, sourceKey) {
       await initialize();

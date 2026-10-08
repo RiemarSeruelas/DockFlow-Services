@@ -17,7 +17,7 @@ listen(process.env.PORT || 8082, async (request, response) => {
   if (path === '/api/power-tool/health' && request.method === 'GET') {
     try {
       const database = await ready();
-      return send(response, 200, { ok: true, serviceVersion: SERVICE_VERSION, diagnostics: runtimeIdentity, provider: database.provider, loggingAvailable: database.loggingAvailable });
+      return send(response, 200, { ok: true, approvalSafetyVersion: '13.2', serviceVersion: SERVICE_VERSION, diagnostics: runtimeIdentity, provider: database.provider, loggingAvailable: database.loggingAvailable });
     } catch (error) {
       log.error('power-tool.health.failed', { failure: safeError(error) });
       return send(response, 503, { ok: false, serviceVersion: SERVICE_VERSION, diagnostics: runtimeIdentity, code: String(error.code || ''), error: String(error.message).slice(0, 200) });

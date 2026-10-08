@@ -39,7 +39,7 @@ before(async () => {
   await database.exec(`CREATE TABLE "Analysis"."SAPAnalysisSavoury" (
     id BIGSERIAL PRIMARY KEY, record_key TEXT UNIQUE NOT NULL,
     created_at TIMESTAMPTZ DEFAULT now(), updated_at TIMESTAMPTZ DEFAULT now(),
-    ${savouryColumns.map(([, , , db]) => `"${db}" ${nativeTypes[db] || 'TEXT'}`).join(', ')}
+    ${savouryColumns.filter(([key])=>!['poNumber','batch','supplierLot','mfgDate','breakdown','palletType','foilWeight','palletWeightKg'].includes(key)).map(([, , , db]) => `"${db}" ${nativeTypes[db] || 'TEXT'}`).join(', ')}
   );`);
   await database.query(`INSERT INTO "Analysis"."SAPAnalysisDressings" (record_key, shipment_id, supplier, item, description, quantity, dr_number) VALUES ('historical:one', 9007199254740993, 'Fixture supplier', '64005553', 'CITRIC ACID', '500', 'DR-100');`);
   await database.query(`INSERT INTO "Analysis"."SAPAnalysisSavoury" (record_key, source_sheet, item_code, description, actual_qty, supplier, dr_number)
@@ -92,7 +92,7 @@ test('Savoury edits native numeric and timestamp columns and rejects stale revis
 test('13.1 filters, ordering, copied Savoury rows and all SAP column permissions run on the existing PostgreSQL schema', async () => {
   const repository = createSapRepository('SAVOURY');
   const page = await repository.page(0, 25, '', {direction:'asc',filters:{drNumber:'DR-123'},exclude:[]});
-  assert.equal(page.source.worksheetVersion,'13.1');
+  assert.equal(page.source.worksheetVersion,'13.2');
   assert.ok(page.rows.every(row=>row.values.drNumber.includes('DR-123')));
   const [first] = (await repository.page(0,1,'',{direction:'asc'})).rows;
   const [saved] = await repository.save([{key:first.key,revision:first.revision,values:{sourceSheet:'SAP ALL EDITABLE',actualQty:'25',scheduledQty:'1.5'}}], 'Test SAP', 'sap');
@@ -142,6 +142,31 @@ test('13.1 sorts text dates chronologically, handles Manila and ISO timestamps, 
   await database.query('DELETE FROM "Analysis"."SAPAnalysisDressings" WHERE record_key LIKE $1',['date:%']);
 });
 
+test('13.2 sorts and filters supplemental Savoury values over the full legacy table without schema writes', async()=>{
+  const repository=createSapRepository('SAVOURY');
+  const receivingValues={'source:7':{poNumber:'100',batch:'2',supplierLot:'LOCAL-A',palletType:'Allergen A',foilWeight:'0',palletWeightKg:'2',mfgDate:'2026-02-01'},'source:30991':{poNumber:'200',batch:'10',supplierLot:'LOCAL-B',palletType:'Allergen B',foilWeight:'1.5',palletWeightKg:'10',mfgDate:'2026-01-01'}};
+  const first=await repository.page(0,1,'',{column:'batch',direction:'desc',receivingValues});
+  assert.equal(first.rows[0].key,'source:30991');assert.equal(first.hasMore,true);
+  const next=await repository.page(1,1,'',{column:'batch',direction:'desc',receivingValues});assert.equal(next.rows[0].key,'source:7');
+  const filtered=await repository.page(0,25,'',{filters:{supplierLot:'LOCAL-B'},receivingValues});assert.deepEqual(filtered.rows.map(row=>row.key),['source:30991']);
+  const search=await repository.page(0,25,'LOCAL-A',{receivingValues});assert.deepEqual(search.rows.map(row=>row.key),['source:7']);
+  const dates=await repository.page(0,2,'',{column:'mfgDate',direction:'asc',receivingValues});assert.deepEqual(dates.rows.map(row=>row.key),['source:30991','source:7']);
+  const weights=await repository.page(0,2,'',{column:'palletWeightKg',direction:'desc',filters:{palletWeightKg:'10'},receivingValues});assert.deepEqual(weights.rows.map(row=>row.key),['source:30991']);
+  const foil=await repository.page(0,2,'',{column:'foilWeight',direction:'asc',filters:{palletType:'Allergen'},receivingValues});assert.deepEqual(foil.rows.map(row=>row.key),['source:7','source:30991']);
+  assert.ok(!first.columns.some(([key])=>key==='supplierLot')); // absent company values remain absent, not fabricated
+  assert.equal(queries.some(sql=>/CREATE|ALTER|DROP/.test(sql)),false);
+  await assert.rejects(repository.page(0,25,'',{receivingValues:{bad:{itemCode:'x'}}}),error=>error.status===400);
+});
+
+test('13.2 clearance fetches every matching DR/PO line, including more than ten thousand rows',async()=>{
+  const repository=createSapRepository('SAVOURY');
+  const shipment={id:999,items:[{materialCode:'64204756',dnNumber:'DR-6 / DR-9',poNumber:'PO-1'}]};
+  const rows=await repository.forClearance(shipment);assert.deepEqual(new Set(rows.map(row=>row.key)),new Set(['source:6','source:9']));
+  await database.query(`UPDATE "Analysis"."SAPAnalysisSavoury" SET dr_number='CLEARANCE-BULK' WHERE record_key LIKE 'source:%'`);
+  const many=await repository.forClearance({id:999,items:[{materialCode:'64204756',dnNumber:'CLEARANCE-BULK'}]});assert.equal(many.length,30991);
+  assert.equal((await repository.forClearance({id:999,items:[{materialCode:'different',dnNumber:'CLEARANCE-BULK'}]})).length,0);
+});
+
 test('Optional Dressings fields are omitted from reads, searches, synchronization and edits', async () => {
   await database.exec('ALTER TABLE "Analysis"."SAPAnalysisDressings" DROP COLUMN qa_start, DROP COLUMN qa_end, DROP COLUMN cell_formats, DROP COLUMN row_height, DROP COLUMN row_hidden;');
   const repository = createSapRepository('DRESSINGS');
@@ -169,12 +194,12 @@ test('Missing Power Tool logs do not prevent reading existing application data',
   process.env.POWER_TOOL_AUTO_MIGRATE = 'false';
   process.env.ADMIN_PASSWORD = 'Test-only-admin-password!123';
   process.env.INITIAL_REVIEWER_PASSWORD = 'Test-only-reviewer-password!123';
-  await database.exec('CREATE SCHEMA power_tool; CREATE TABLE power_tool.power_tool_meta (singleton BOOLEAN PRIMARY KEY, record JSONB); CREATE TABLE power_tool.power_tool_usage (singleton BOOLEAN PRIMARY KEY, record JSONB);');
+  await database.exec('CREATE SCHEMA power_tool; CREATE TABLE power_tool.power_tool_meta (singleton BOOLEAN PRIMARY KEY, record JSONB, updated_at TIMESTAMPTZ DEFAULT now()); CREATE TABLE power_tool.power_tool_usage (singleton BOOLEAN PRIMARY KEY, record JSONB, updated_at TIMESTAMPTZ DEFAULT now());');
   const jsonStore = await import('../server/power-tool/jsonDataStore.js');
   const fixture = jsonStore.normalizeDb({ ...jsonStore.createInitialDb(), items: [{ id: 1, name: 'Existing tool' }] }).db;
   await database.query('INSERT INTO power_tool.power_tool_meta VALUES (true, $1::jsonb)', [JSON.stringify(fixture.meta)]);
   await database.query('INSERT INTO power_tool.power_tool_usage VALUES (true, $1::jsonb)', [JSON.stringify(fixture.usage)]);
-  for (const table of ['categories', 'legacy_categories', 'staff_accounts', 'requests', 'items']) await database.exec(`CREATE TABLE power_tool.power_tool_${table} (id TEXT PRIMARY KEY, record JSONB);`);
+  for (const table of ['categories', 'legacy_categories', 'staff_accounts', 'requests', 'items']) await database.exec(`CREATE TABLE power_tool.power_tool_${table} (id TEXT PRIMARY KEY, record JSONB, updated_at TIMESTAMPTZ DEFAULT now());`);
   for (const [key, table] of Object.entries({ categories: 'categories', legacyCategories: 'legacy_categories', staffAccounts: 'staff_accounts', requests: 'requests', items: 'items' })) for (const row of fixture[key]) await database.query(`INSERT INTO power_tool.power_tool_${table} VALUES ($1, $2::jsonb)`, [row.id, JSON.stringify(row)]);
   const store = await import('../server/power-tool/dataStore.js');
   await store.initializeDataStore();
@@ -185,5 +210,12 @@ test('Missing Power Tool logs do not prevent reading existing application data',
   const data = await store.readDb();
   assert.equal(data.items[0].name, 'Existing tool');
   assert.equal((await store.recordPowerToolLog({ eventType: 'visit' })).stored, false);
+  const pending=await store.readDb();pending.requests.push({id:'test-retry',categoryId:'cat-elc',status:'pending',itemName:'Retry fixture',specificReviewGroupsSnapshot:[],specificCriteriaId:'',specificCriteriaName:''});await store.writeDb(pending);
+  const a=await store.readDb(),b=await store.readDb(),staleGet=await store.readDb();
+  a.requests.find(row=>row.id==='test-retry').status='approved';a.requests.find(row=>row.id==='test-retry').itemId='asset-first';a.items.push({id:'asset-first',requestId:'test-retry',qrId:'QR-FIRST',expiresAt:'2027-01-01',renewalHistory:[],specificCriteriaId:'',specificCriteriaName:''});await store.writeDb(a);
+  b.requests.find(row=>row.id==='test-retry').status='approved';b.items.push({id:'asset-duplicate',requestId:'test-retry',qrId:'QR-DUPLICATE'});
+  await assert.rejects(store.writeDb(b),error=>error.code==='APPROVAL_CONFLICT');
+  staleGet.requests.find(row=>row.id==='test-retry').currentApprovalRole='reviewer-or-admin';await assert.rejects(store.writeDb(staleGet),error=>error.code==='APPROVAL_CONFLICT');
+  const final=await store.readDb();assert.equal(final.requests.find(row=>row.id==='test-retry').status,'approved');assert.equal(final.items.filter(row=>row.requestId==='test-retry').length,1);assert.equal(final.items.find(row=>row.requestId==='test-retry').qrId,'QR-FIRST');
   await store.closeDb();
 });

@@ -7,7 +7,7 @@ const savoury = 'source_batch source_sheet source_row section_index material_typ
 
 test('Receiving Records columns match the supplied source-table schemas', () => {
   assert.deepEqual(sapColumns.map(column => column[3]), dressings);
-  assert.deepEqual(savouryColumns.map(column => column[3]), savoury);
+  assert.deepEqual(savouryColumns.map(column => column[3]), ['po_number','batch','supplier_lot','mfg_date','breakdown','pallet_type','foil_weight','pallet_weight_kg',...savoury]);
   assert.equal(sapColumnsFor('DRESSINGS'), sapColumns);
   assert.equal(sapColumnsFor('SAVOURY'), savouryColumns);
   assert.equal(savouryColumns.some(column => column[3] === 'shipment_id'), false);

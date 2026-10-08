@@ -507,6 +507,13 @@ async function writeCollectionChanges(client, key, desiredRecords, baseline) {
 
   for (const [id, record] of after) {
     if (before.get(id) === record) continue;
+    if(key==='requests'){
+      const expected=before.get(id)?JSON.parse(before.get(id)):null;
+      if(expected?.status){
+        const current=await client.query(`SELECT record FROM ${tableName(table)} WHERE id=$1 FOR UPDATE`,[id]);
+        if(current.rows[0]?.record?.status!==expected.status)throw Object.assign(new Error('This inspection was already completed. Reload the existing result.'),{status:409,code:'APPROVAL_CONFLICT'});
+      }
+    }
     await client.query(
       `INSERT INTO ${tableName(table)} (id, record)
        VALUES ($1, $2::jsonb)
