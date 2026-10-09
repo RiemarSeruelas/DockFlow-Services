@@ -1,0 +1,278 @@
+{
+  "info": {
+    "name": "DockFlow and Power Tool \u2014 shared Express 13.3",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Set private apiKey and baseUrl. Read operations only by default; write contracts are in Swagger/docs/API.md."
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{apiKey}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:5230"
+    },
+    {
+      "key": "apiKey",
+      "value": ""
+    },
+    {
+      "key": "caller",
+      "value": "dockflow"
+    }
+  ],
+  "item": [
+    {
+      "name": "Liveness",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-Request-ID",
+            "value": "{{$guid}}"
+          }
+        ],
+        "url": "{{baseUrl}}/health"
+      }
+    },
+    {
+      "name": "Readiness",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-Request-ID",
+            "value": "{{$guid}}"
+          }
+        ],
+        "url": "{{baseUrl}}/ready"
+      }
+    },
+    {
+      "name": "Verify handshake",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-Request-ID",
+            "value": "{{$guid}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/v1/handshake",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"nonce\": \"{{handshakeNonce}}\",\n  \"caller\": \"{{caller}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const CryptoJS = require('crypto-js');",
+              "pm.variables.set('handshakeNonce', CryptoJS.lib.WordArray.random(32).toString(CryptoJS.enc.Hex));"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Handshake status', () => pm.response.to.have.status(200));",
+              "const r = pm.response.json();",
+              "pm.test('Nonce, service and protocol match', () => { pm.expect(r.nonce).to.eql(pm.variables.get('handshakeNonce')); pm.expect(r.service).to.eql('dockflow-services'); pm.expect(r.protocolVersion).to.eql(1); pm.expect(r.applications).to.eql(['dockflow','power-tool']); });",
+              "const CryptoJS = require('crypto-js');",
+              "const message = `dockflow-services:1:${r.nonce}:dockflow,power-tool:${r.serviceVersion}`;",
+              "const proof = CryptoJS.HmacSHA256(message, pm.variables.get('apiKey')).toString(CryptoJS.enc.Hex);",
+              "pm.test('Shared key proof matches', () => pm.expect(r.proof).to.eql(proof));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "DockFlow",
+      "item": [
+        {
+          "name": "Database health",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Request-ID",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/dockflow/health"
+          }
+        },
+        {
+          "name": "DRESSINGS describe",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Request-ID",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/dockflow/sap/DRESSINGS/describe",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"args\": []\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "SAVOURY describe",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Request-ID",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/dockflow/sap/SAVOURY/describe",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"args\": []\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "DRESSINGS page",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Request-ID",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/dockflow/sap/DRESSINGS/page",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"args\": [\n    0,\n    25,\n    \"\",\n    {\n      \"direction\": \"desc\",\n      \"receivingValues\": {}\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "SAVOURY page",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Request-ID",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/dockflow/sap/SAVOURY/page",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"args\": [\n    0,\n    25,\n    \"\",\n    {\n      \"direction\": \"desc\",\n      \"receivingValues\": {}\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Power Tool",
+      "item": [
+        {
+          "name": "Database health",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Request-ID",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/power-tool/health"
+          }
+        },
+        {
+          "name": "Read snapshot (backend only)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Request-ID",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/power-tool/read",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

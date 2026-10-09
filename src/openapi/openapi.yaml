@@ -1,0 +1,705 @@
+openapi: 3.0.3
+info:
+  title: DockFlow and Power Tool workstation API
+  version: 13.3.0
+  description: One Express process, two modules and separate PostgreSQL pools.
+    Ubuntu backends authenticate with a shared integration key and verify a
+    nonce-based HMAC handshake. Browser user authorization stays in the existing
+    Ubuntu applications.
+servers:
+  - url: /
+    description: Current workstation API / approved reverse proxy
+tags:
+  - name: Operations
+    description: Public process and database readiness checks
+  - name: Connection
+    description: Authenticated backend handshake
+  - name: DockFlow
+    description: Existing Receiving Records repositories, both production areas
+  - name: Power Tool
+    description: Existing PostgreSQL-only inspection and equipment state
+security:
+  - BearerAuth: []
+  - ApiKeyAuth: []
+paths:
+  /health:
+    get:
+      operationId: getHealth
+      tags:
+        - Operations
+      summary: Check the Express process
+      parameters:
+        - $ref: "#/components/parameters/RequestId"
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - status
+                  - service
+                  - version
+                  - transport
+                properties:
+                  status:
+                    type: string
+                  service:
+                    type: string
+                  version:
+                    type: string
+                  transport:
+                    type: string
+      security: []
+  /ready:
+    get:
+      operationId: getReady
+      tags:
+        - Operations
+      summary: Check both database-backed modules
+      parameters:
+        - $ref: "#/components/parameters/RequestId"
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - status
+                  - services
+                properties:
+                  status:
+                    type: string
+                    enum:
+                      - ready
+                      - unavailable
+                  services:
+                    type: object
+                    additionalProperties: true
+        "503":
+          description: At least one module is unavailable
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - status
+                  - services
+                properties:
+                  status:
+                    type: string
+                    enum:
+                      - ready
+                      - unavailable
+                  services:
+                    type: object
+                    additionalProperties: true
+      security: []
+  /api/v1/handshake:
+    post:
+      operationId: verifyHandshake
+      tags:
+        - Connection
+      summary: Prove possession of the integration key
+      parameters:
+        - $ref: "#/components/parameters/RequestId"
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HandshakeResult"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Integration key is absent, malformed or rejected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: Database or dependency unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "504":
+          description: Database statement timeout
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - nonce
+                - caller
+              properties:
+                nonce:
+                  type: string
+                  pattern: ^[0-9a-fA-F]{32,128}$
+                caller:
+                  type: string
+                  enum:
+                    - dockflow
+                    - power-tool
+            example:
+              nonce: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+              caller: dockflow
+      description: Ubuntu generates a fresh nonce and verifies HMAC-SHA256(key,
+        "dockflow-services:1:{nonce}:dockflow,power-tool:{serviceVersion}").
+        Every later request also requires the token. HTTPS authenticates the
+        endpoint and protects data; the handshake does not create a network
+        route.
+  /api/v1/dockflow/health:
+    get:
+      operationId: getDockflowHealth
+      tags:
+        - DockFlow
+      summary: Check DockFlow database and contract
+      parameters:
+        - $ref: "#/components/parameters/RequestId"
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ServiceHealth"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Integration key is absent, malformed or rejected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: Database/schema check failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ServiceHealth"
+        "504":
+          description: Database statement timeout
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/v1/power-tool/health:
+    get:
+      operationId: getPowerToolHealth
+      tags:
+        - Power Tool
+      summary: Check Power Tool database and contract
+      parameters:
+        - $ref: "#/components/parameters/RequestId"
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ServiceHealth"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Integration key is absent, malformed or rejected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: Database/schema check failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ServiceHealth"
+        "504":
+          description: Database statement timeout
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/v1/dockflow/sap/{area}/{operation}:
+    post:
+      operationId: executeReceivingOperation
+      tags:
+        - DockFlow
+      summary: Call an existing Receiving Records operation
+      parameters:
+        - $ref: "#/components/parameters/RequestId"
+        - in: path
+          name: area
+          required: true
+          schema:
+            type: string
+            enum:
+              - DRESSINGS
+              - SAVOURY
+        - in: path
+          name: operation
+          required: true
+          schema:
+            type: string
+            enum:
+              - describe
+              - sync
+              - page
+              - byKeys
+              - all
+              - forShipment
+              - forClearance
+              - add
+              - save
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Result"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Integration key is absent, malformed or rejected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Worksheet role does not permit these changes
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Revision conflict; reload the worksheet
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: Database or dependency unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "504":
+          description: Database statement timeout
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - args
+              properties:
+                args:
+                  type: array
+                  maxItems: 4
+                  items: {}
+                  description: Positional arguments listed in docs/API.md. No SQL may be supplied.
+            example:
+              args:
+                - 0
+                - 25
+                - ""
+                - direction: desc
+                  receivingValues: {}
+      description: "Reads: describe, page, byKeys, all, forShipment, forClearance.
+        Writes: sync, add, save. Existing role field permissions and revision
+        checks are retained. Write methods alter production data; use read
+        methods for connectivity checks."
+  /api/v1/power-tool/read:
+    post:
+      operationId: readPowerTool
+      tags:
+        - Power Tool
+      summary: Read a complete PostgreSQL state snapshot
+      parameters:
+        - $ref: "#/components/parameters/RequestId"
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PowerReadResult"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Integration key is absent, malformed or rejected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: Database or dependency unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "504":
+          description: Database statement timeout
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+            example: {}
+  /api/v1/power-tool/write:
+    post:
+      operationId: writePowerTool
+      tags:
+        - Power Tool
+      summary: Commit changes relative to the original snapshot
+      parameters:
+        - $ref: "#/components/parameters/RequestId"
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PowerReadResult"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Integration key is absent, malformed or rejected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: An inspection was already completed; reload the existing result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: Database or dependency unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "504":
+          description: Database statement timeout
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - before
+                - after
+              properties:
+                before:
+                  $ref: "#/components/schemas/PowerState"
+                after:
+                  $ref: "#/components/schemas/PowerState"
+      description: Send the exact before snapshot received from read and your modified
+        after snapshot. Only changed records are written. Existing final
+        approval conflict checks, transaction rollback and usage counter merge
+        behavior are retained. IDs must be unique within each collection. Do not
+        construct empty replacement snapshots.
+  /api/v1/power-tool/log:
+    post:
+      operationId: recordPowerToolAudit
+      tags:
+        - Power Tool
+      summary: Store an existing business audit event
+      parameters:
+        - $ref: "#/components/parameters/RequestId"
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Result"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Integration key is absent, malformed or rejected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: Database or dependency unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "504":
+          description: Database statement timeout
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - entry
+              properties:
+                entry:
+                  type: object
+                  required:
+                    - eventType
+                    - eventKey
+                  properties:
+                    eventType:
+                      type: string
+                      minLength: 1
+                    eventKey:
+                      type: string
+                      minLength: 1
+                  additionalProperties: true
+            example:
+              entry:
+                eventType: qr_open
+                eventKey: example-session:qr_open:example-item
+                targetId: example-item
+      description: Preserves the existing optional PostgreSQL audit table; does not
+        print the record body. If the optional table is absent, returns
+        stored:false.
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: COMPANY_API_KEY from the Ubuntu backend; generated secret of at
+        least 32 bytes. This is a shared integration token, not a JWT.
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: Alternative header for the same integration key. If both headers
+        are sent, the keys must match.
+  parameters:
+    RequestId:
+      in: header
+      name: X-Request-ID
+      required: false
+      schema:
+        type: string
+        pattern: ^[a-zA-Z0-9_.-]{1,128}$
+      description: Correlation ID preserved across Ubuntu, Express and database logs.
+  schemas:
+    Error:
+      type: object
+      required:
+        - error
+        - requestId
+      properties:
+        error:
+          type: string
+        code:
+          type: string
+        details:
+          type: array
+          items:
+            type: string
+        requestId:
+          type: string
+    Result:
+      type: object
+      required:
+        - ok
+        - result
+      properties:
+        ok:
+          type: boolean
+          enum:
+            - true
+        result:
+          description: Operation-specific repository result; see docs/API.md.
+    Record:
+      type: object
+      required:
+        - id
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 200
+      additionalProperties: true
+    PowerState:
+      type: object
+      required:
+        - meta
+        - usage
+        - categories
+        - legacyCategories
+        - staffAccounts
+        - requests
+        - items
+      properties:
+        meta:
+          type: object
+          additionalProperties: true
+        usage:
+          type: object
+          additionalProperties: true
+        categories:
+          type: array
+          items:
+            $ref: "#/components/schemas/Record"
+        legacyCategories:
+          type: array
+          items:
+            $ref: "#/components/schemas/Record"
+        staffAccounts:
+          type: array
+          items:
+            $ref: "#/components/schemas/Record"
+        requests:
+          type: array
+          items:
+            $ref: "#/components/schemas/Record"
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Record"
+    PowerReadResult:
+      type: object
+      required:
+        - ok
+        - result
+      properties:
+        ok:
+          type: boolean
+          enum:
+            - true
+        result:
+          $ref: "#/components/schemas/PowerState"
+    HandshakeResult:
+      type: object
+      required:
+        - ok
+        - service
+        - serviceVersion
+        - protocolVersion
+        - applications
+        - nonce
+        - proof
+        - requestId
+      properties:
+        ok:
+          type: boolean
+          enum:
+            - true
+        service:
+          type: string
+          enum:
+            - dockflow-services
+        serviceVersion:
+          type: string
+        protocolVersion:
+          type: integer
+          enum:
+            - 1
+        applications:
+          type: array
+          items:
+            type: string
+            enum:
+              - dockflow
+              - power-tool
+        nonce:
+          type: string
+        proof:
+          type: string
+          pattern: ^[0-9a-f]{64}$
+        requestId:
+          type: string
+        diagnostics:
+          type: object
+          additionalProperties: true
+    ServiceHealth:
+      type: object
+      required:
+        - ok
+        - serviceVersion
+        - protocolVersion
+      properties:
+        ok:
+          type: boolean
+        serviceVersion:
+          type: string
+        protocolVersion:
+          type: integer
+        areas:
+          type: object
+          description: DRESSINGS and SAVOURY status including schema, table, mapped
+            columns and worksheetVersion 13.2.
+          additionalProperties: true
+        provider:
+          type: string
+        loggingAvailable:
+          type: boolean
+        approvalSafetyVersion:
+          type: string
+        code:
+          type: string
+        error:
+          type: string
+        diagnostics:
+          type: object
+          additionalProperties: true

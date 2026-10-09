@@ -1,0 +1,11 @@
+# OpenAPI lint config — run with `npm run lint:openapi`.
+apis:
+  dockflow@v1:
+    root: src/openapi/openapi.yaml
+
+extends:
+  - recommended
+
+rules:
+  # Internal service; no license to publish.
+  info-license: off

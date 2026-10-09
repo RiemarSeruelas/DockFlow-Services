@@ -1,0 +1,13 @@
+services:
+  api:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "${API_BIND_HOST:-127.0.0.1}:${PORT:-5230}:${PORT:-5230}"
+    stop_grace_period: 15s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
