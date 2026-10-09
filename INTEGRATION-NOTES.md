@@ -13,7 +13,7 @@ This is a **new standalone service** using the teammate's People Accounting serv
 | `src/modules/<feature>/*` | `dockflow` and `power-tool` validators, controllers, services and repositories |
 | `src/openapi/*`, `docs/API.md` | Same OpenAPI/Swagger documentation mechanism |
 | `postman/*`, `test/*` | Request collection and automated contract/database checks |
-| `Dockerfile`, `docker-compose.yml` | One Node 22 container, port 5230 |
+| `Dockerfile`, `docker-compose.yml` | One Node 22 container, configured port (existing 5063 supported), optional in-process outbound worker |
 
 ## Retained behavior
 
@@ -35,3 +35,7 @@ The existing production schemas must already contain data. Startup does not crea
 - Ubuntu transport changes are in the companion ZIP, in each app's `server/company-api-client.js` and `company-integration-logging.js`.
 
 This folder is ready to add to the senior developer's own Git repository. No repository URL was supplied, so no remote repository or branch was created. Commit the project files while keeping `.env` and `node_modules` excluded. Use the committed lockfile with `npm ci` / Docker builds.
+
+## Outbound compatibility repair
+
+`src/outbound-worker.js` preserves the original 13.2 polling/parts wire format and forwards validated jobs to the local shared API. Ubuntu 13.3.1 retains the legacy queue with diagnostics and per-container local addresses. See `docs/BRIDGE-RECOVERY.md`; People Accounting is unchanged.

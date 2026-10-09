@@ -16,3 +16,10 @@ redocly.yaml
 *.pem
 *.key
 SHA256SUMS
+
+worker-state
+*.dump
+*.tgz
+*.log
+
+*.private.*

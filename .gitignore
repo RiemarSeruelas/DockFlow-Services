@@ -5,3 +5,7 @@ npm-debug.log*
 !.env.example
 *.pem
 *.key
+
+worker-state/
+*.private.*
+*.dump

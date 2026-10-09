@@ -42,12 +42,12 @@ export const runtimeIdentity = Object.freeze({
 
 export function safeText(value, length = 500) {
   let text = String(value ?? '').replace(/[\u0000-\u001f\u007f]/g, ' ');
-  const secrets = Object.entries(process.env).filter(([key, item]) => secretKey.test(key) && item?.length >= 4).map(([, item]) => item).sort((a, b) => b.length - a.length);
+  const secrets = Object.entries(process.env).filter(([key, item]) => secretKey.test(key) && item?.length >= 4).flatMap(([key, item]) => /API_KEYS/i.test(key) ? [item, ...item.split(',').map(value => value.trim()).filter(value => value.length >= 4)] : [item]).sort((a, b) => b.length - a.length);
   for (const secret of secrets) text = text.split(secret).join('[REDACTED]');
   text = text.replace(/\bBearer\s+\S+/gi, 'Bearer [REDACTED]')
     .replace(/\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g, '[REDACTED]')
     .replace(/\b(password|secret|token|api[_-]?key|authorization)\s*[:=]\s*[^\s,;]+/gi, '$1=[REDACTED]')
-    .replace(/(https?:\/\/)[^/\s@]+@/gi, '$1[REDACTED]@');
+    .replace(/(https?:\/\/|postgres(?:ql)?:\/\/)[^/\s@]+@/gi, '$1[REDACTED]@');
   return text.slice(0, length);
 }
 
@@ -56,7 +56,7 @@ export function safeError(error) {
   let message = safeText(error?.message || 'Service unavailable');
   // PostgreSQL detail and statement parameters can include complete data rows.
   // Keep identifiers for schema/auth failures, but hide quoted input literals.
-  if (!['42703', '42P01', '42501', '28P01', '3D000', '3F000'].includes(code)) {
+  if (!['42703', '42P01', '42501', '3D000', '3F000'].includes(code)) {
     message = message.replace(/"[^"\r\n]*"|'[^'\r\n]*'/g, '[REDACTED_VALUE]');
   }
   return {

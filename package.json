@@ -10,7 +10,7 @@
   "scripts": {
     "start": "node index.js",
     "dev": "node --watch index.js",
-    "test": "node --test test/*.test.js test/*/*.test.js",
+    "test": "node --test --test-concurrency=1 test/*.test.js test/*/*.test.js",
     "lint:openapi": "npx --yes @redocly/cli@2.53.3 lint"
   },
   "dependencies": {

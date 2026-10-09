@@ -3,16 +3,20 @@ import { loadConfig } from './src/config.js';
 import { createPools,ping } from './src/db.js';
 import { createApp } from './src/app.js';
 import { log,reportConnectionState,runtimeIdentity,safeError } from './src/utils/logger.js';
+import { createOutboundWorker } from './src/outbound-worker.js';
 let config;
 try{config=loadConfig();}catch(error){log.error('initialization.configuration_failed',{failure:safeError(error)});process.exit(1);}
 const pools=createPools(config);
-const app=createApp({config,pools});
-const server=app.listen(config.port,'0.0.0.0',()=>log.info('initialization.service.listening',{port:config.port,...runtimeIdentity,applications:['dockflow','power-tool']}));
+const workerAbort = new AbortController();
+let worker;
+try{worker=createOutboundWorker({...config.worker,signal:workerAbort.signal});}catch(error){log.error('initialization.worker.failed',{failure:{code:error.code||'WORKER_STARTUP_FAILED'}});process.exit(1);}
+const app=createApp({config,pools,worker});
+const server=app.listen(config.port,'0.0.0.0',()=>{log.info('initialization.service.listening',{port:config.port,...runtimeIdentity,applications:['dockflow','power-tool']});worker.run().catch(error=>{log.error('connection.worker.crashed',{failure:safeError(error)});process.exit(1);});});
 server.on('error',error=>{log.error('initialization.service.failed',{failure:safeError(error)});process.exit(1);});
 for(const [name,pool] of Object.entries(pools)) ping(pool).then(()=>reportConnectionState(name,true)).catch(error=>reportConnectionState(name,false,{failure:safeError(error)}));
 let closing=false;
 function shutdown(signal){
-  if(closing)return;closing=true;log.info('connection.service.closing',{signal});
+  if(closing)return;closing=true;workerAbort.abort();log.info('connection.service.closing',{signal});
   setTimeout(()=>{log.error('connection.service.shutdown_timeout');process.exit(1);},10000).unref();
   server.close(async()=>{await Promise.allSettled(Object.values(pools).map(pool=>pool.end()));process.exit(0);});
 }

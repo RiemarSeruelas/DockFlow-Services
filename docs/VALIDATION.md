@@ -1,3 +1,5 @@
+Current outbound repair results are in `../BRIDGE-VALIDATION.md`. The checks below describe the earlier release and do not establish current production readiness.
+
 # Validation — Express migration 13.3
 
 ## Completed automated checks

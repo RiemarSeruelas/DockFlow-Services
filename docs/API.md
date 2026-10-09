@@ -2,7 +2,7 @@
 
 Shared REST API over the existing company DockFlow Receiving Records and Power Tool PostgreSQL data.
 
-- **Local base URL:** `http://localhost:5230`; production uses your approved reachable HTTPS proxy URL.
+- **Local base URL:** `http://localhost:5230`, or the retained `PORT=5063`. Outbound mode calls this API locally; direct mode uses an existing reachable HTTPS root.
 - **Version prefix:** `/api/v1`
 - **Format:** JSON; health checks use GET, repository operations use POST.
 - **Interactive docs:** `/docs/`; spec at `/openapi.json` / `/openapi.yaml`.
@@ -107,7 +107,7 @@ createHmac('sha256', key)
   .digest('hex');
 ```
 
-Compare with a constant-time function. Both Ubuntu clients implement this automatically and cache successful verification for 30 seconds. Every API request remains independently token-protected. TLS validation is always enabled; the handshake does not replace HTTPS or network routing.
+Compare with a constant-time function. Both Ubuntu clients in direct Express mode implement this automatically and cache successful verification for 30 seconds. Every API request remains independently token-protected. TLS validation is always enabled; the handshake does not replace HTTPS or network routing.
 
 ## DockFlow
 
@@ -174,3 +174,7 @@ Body `{ "entry": { "eventType": "qr_open", "eventKey": "session:event:item", ...
 | POST | `/api/v1/dockflow/sap/{area}/{operation}` | Integration token |
 | GET | `/api/v1/power-tool/health` | Integration token |
 | POST | `/api/v1/power-tool/read`, `/write`, `/log` | Integration token |
+
+## Outbound bridge diagnostics
+
+Authenticated `GET /api/v1/diagnostics` returns the worker state without company records or credentials. `/health` checks only Express liveness; module health and redacted `diagnostics.mjs` independently check company databases and worker activity. See `BRIDGE-RECOVERY.md` for the outbound profile.

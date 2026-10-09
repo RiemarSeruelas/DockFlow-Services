@@ -22,7 +22,7 @@ function databaseConfig(env, prefix, defaultDatabase, defaultSchema, errors) {
   const poolMax = integer(env, 'DB_POOL_MAX', 5, 1, 25, errors);
   const statementTimeoutMs = integer(env, 'DB_STATEMENT_TIMEOUT_MS', 15000, 1000, 60000, errors);
   return { connection: { host, port, user, password, database, ssl: sslRaw === 'true' ? { rejectUnauthorized: true } : false }, schema, poolMax, statementTimeoutMs,
-    logFields: { application: prefix === 'DOCKFLOW' ? 'dockflow' : 'power-tool', databaseHost: host, databasePort: port, database, databaseAccount: user, schema, sslEnabled: sslRaw === 'true' } };
+    logFields: { application: prefix === 'DOCKFLOW' ? 'dockflow' : 'power-tool', databaseHost: host, databasePort: port, database, schema, sslEnabled: sslRaw === 'true' } };
 }
 
 export function loadConfig(env = process.env) {
@@ -30,6 +30,18 @@ export function loadConfig(env = process.env) {
   const apiKeys = String(env.API_KEYS || env.COMPANY_API_KEY || '').split(',').map(key => key.trim()).filter(Boolean);
   if (!apiKeys.length || apiKeys.some(key => Buffer.byteLength(key) < MIN_KEY_LENGTH || /\s/.test(key) || /^(replace|change|your[-_])/i.test(key))) errors.push('API_KEYS (or COMPANY_API_KEY) requires a generated key of at least 32 bytes, without spaces');
   const port = integer(env, 'PORT', 5230, 1, 65535, errors);
+  const workerEnabled = String(env.OUTBOUND_WORKER_ENABLED || 'false').toLowerCase();
+  if (!['true','false'].includes(workerEnabled)) errors.push('OUTBOUND_WORKER_ENABLED must be true or false');
+  const worker = { enabled: workerEnabled === 'true', bridgeUrl: String(env.UBUNTU_BRIDGE_URL || '').trim().replace(/\/+$/, ''),
+    key: String(env.COMPANY_API_KEY || apiKeys[0] || '').trim(), localUrl: `http://127.0.0.1:${port}/`,
+    stateDir: env.WORKER_STATE_DIR || './worker-state' };
+  if (worker.enabled) {
+    try {
+      const url = new URL(worker.bridgeUrl);
+      if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash || !url.pathname.endsWith('/api/integrations/company-bridge')) errors.push('UBUNTU_BRIDGE_URL must be the existing public HTTPS company-bridge endpoint');
+    } catch { errors.push('UBUNTU_BRIDGE_URL is required when the outbound worker is enabled'); }
+    if (!apiKeys.includes(worker.key)) errors.push('COMPANY_API_KEY must match Ubuntu and one of this service API_KEYS');
+  }
   const dockflow = databaseConfig(env, 'DOCKFLOW', 'DockFlow', 'Analysis', errors);
   const powerTool = databaseConfig(env, 'POWER_TOOL', 'confirmation_powertool_machine', 'power_tool', errors);
   dockflow.tables = {
@@ -38,5 +50,5 @@ export function loadConfig(env = process.env) {
   };
   if (env.DOCS_ENABLED && !['true','false'].includes(env.DOCS_ENABLED.toLowerCase())) errors.push('DOCS_ENABLED must be true or false');
   if (errors.length) throw new Error('Invalid configuration: ' + errors.join('; '));
-  return { port, apiKeys, docsEnabled: String(env.DOCS_ENABLED || 'true').toLowerCase() !== 'false', dockflow, powerTool };
+  return { port, apiKeys, worker, docsEnabled: String(env.DOCS_ENABLED || 'true').toLowerCase() !== 'false', dockflow, powerTool };
 }

@@ -22,6 +22,30 @@ security:
   - BearerAuth: []
   - ApiKeyAuth: []
 paths:
+  /api/v1/diagnostics:
+    get:
+      operationId: getDiagnostics
+      tags: [Connection]
+      summary: Read worker state without credentials or company records
+      parameters:
+        - $ref: "#/components/parameters/RequestId"
+      responses:
+        "200":
+          description: Express worker state; database readiness is checked separately
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, worker]
+                properties:
+                  ok: {type: boolean}
+                  worker: {type: object, additionalProperties: true}
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /health:
     get:
       operationId: getHealth

@@ -6,6 +6,7 @@ export function requestLogger(logger = log) {
     const match = /^\/api\/v1\/(dockflow|power-tool)\//.exec(req.path);
     const fields = { requestId: req.id, method: req.method, operation: health ? 'health' : req.path.split('/').at(-1),
       path: /^\/(?:api\/v1\/(?:dockflow|power-tool|handshake)|health|ready|docs|openapi)/.test(req.path) ? req.path : '[unrecognized-path]',
+      jobId: /^[0-9a-f-]{36}$/i.test(String(req.get('x-bridge-job-id') || '')) ? req.get('x-bridge-job-id') : undefined,
       application: match?.[1], peerIp: req.socket.remoteAddress, declaredCaller: String(req.get('x-caller-service') || 'direct-api-client').slice(0,80) };
     res.set('X-Service-Version', runtimeIdentity.serviceVersion);
     res.set('X-Service-Instance-ID', runtimeIdentity.instanceId);
